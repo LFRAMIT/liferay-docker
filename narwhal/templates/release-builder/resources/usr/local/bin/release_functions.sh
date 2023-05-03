@@ -18,6 +18,13 @@ function download_released_files {
 		echo "Processing ${artifact_properties}"
 		local app_dir=../$(dirname "${artifact_properties}")
 
+		if ( echo "${app_dir}" | grep -q ".././core/" )
+		then
+			echo "Skipping ${app_dir} as it's a core module"
+
+			continue
+		fi
+
 		if [ ! -e "${app_dir}/.lfrbuild-portal" ]
 		then
 			echo "Skipping ${app_dir} as it doesn't have .lfrbuild-portal"
