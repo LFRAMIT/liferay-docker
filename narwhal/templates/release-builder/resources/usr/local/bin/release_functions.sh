@@ -39,6 +39,21 @@ function download_released_files {
 			continue
 		fi
 
+		if (echo "${app_dir}" | grep -Fq ".././dxp/")
+		then
+			local default_app_dir=$(echo "${app_dir}" | sed -e "s#.././dxp/#../#")
+			default_app_dir=$(dirname "${default_app_dir}")
+
+			echo "Default: ${default_app_dir}"
+
+			if [ -e "${default_app_dir}/app.bnd" ] && (grep -q "Liferay-Releng-Bundle: false" "${default_app_dir}/app.bnd")
+			then
+				echo "Skipping ${app_dir} as it's non-DXP parent has Liferay-Releng-Bundle: false"
+
+				continue
+			fi
+		fi
+
 		if [ -e "${app_dir}/.lfrbuild-app-server-lib" ]
 		then
 			echo "Skipping ${app_dir} as it has .lfrbuild-app-server-lib"
