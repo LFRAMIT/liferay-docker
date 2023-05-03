@@ -25,9 +25,23 @@ function download_released_files {
 			continue
 		fi
 
+		if [ -e "${app_dir}/../app.bnd" ] && (grep -q "Liferay-Releng-Bundle: false" "${app_dir}/../app.bnd")
+		then
+			echo "Skipping ${app_dir} as it's parent has Liferay-Releng-Bundle: false"
+
+			continue
+		fi
+
 		if [ -e "${app_dir}/.lfrbuild-app-server-lib" ]
 		then
 			echo "Skipping ${app_dir} as it has .lfrbuild-app-server-lib"
+
+			continue
+		fi
+
+		if [ -e "${app_dir}/.lfrbuild-tool" ]
+		then
+			echo "Skipping ${app_dir} as it has .lfrbuild-tool"
 
 			continue
 		fi
@@ -55,9 +69,9 @@ function download_released_files {
 function remove_built_jars {
 	lcd "${BUNDLES_DIR}/osgi/marketplace"
 
-	find . -name "*.jar" -print0 | while IFS= read -r -d '' marketplace_jar
+	find . -name "*.[jw]ar" -print0 | while IFS= read -r -d '' marketplace_jar
 	do
-		local built_name=$(echo "${marketplace_jar}" | sed -e s/-[0-9]*[.][0-9]*[.][0-9]*.jar/.jar/)
+		local built_name=$(echo "${marketplace_jar}" | sed -e s/-[0-9]*[.][0-9]*[.][0-9]*[.]/./)
 		built_name=${built_name#./}
 
 		local built_file=$(find "${BUNDLES_DIR}/osgi" -name "${built_name}")
@@ -67,6 +81,11 @@ function remove_built_jars {
 			echo "Deleting ${built_file}"
 
 			rm -f "${built_file}"
+		elif [ -e "${BUNDLES_DIR}/deploy/${built_name}" ]
+		then
+			echo "Deleting ${built_name} from deploy"
+
+			rm -fr "${BUNDLES_DIR}/deploy/${built_name}"
 		else
 			echo "Couldn't find ${built_name}"
 
