@@ -42,9 +42,8 @@ function download_released_files {
 		if (echo "${app_dir}" | grep -Fq ".././dxp/")
 		then
 			local default_app_dir=$(echo "${app_dir}" | sed -e "s#.././dxp/#../#")
-			default_app_dir=$(dirname "${default_app_dir}")
 
-			echo "Default: ${default_app_dir}"
+			default_app_dir=$(dirname "${default_app_dir}")
 
 			if [ -e "${default_app_dir}/app.bnd" ] && (grep -q "Liferay-Releng-Bundle: false" "${default_app_dir}/app.bnd")
 			then
