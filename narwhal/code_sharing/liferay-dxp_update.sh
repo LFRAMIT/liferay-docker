@@ -2,21 +2,17 @@
 
 # shellcheck disable=2002,2013
 
-set -e
 set -o pipefail
 
 source $(dirname "$(readlink /proc/$$/fd/255 2>/dev/null)")/_liferay_common.sh
 
 BASE_DIR="${PWD}"
 
-GITHUB_ADDRESS="git@github.com:${GITHUB_PROJECT}"
 GITHUB_PROJECT="${GITHUB_PROJECT:-liferay}"
+GITHUB_ADDRESS="git@github.com:${GITHUB_PROJECT}"
 
-REPO_NAME_DXP="${REPO_NAME_DXP:-liferay-dxp}"
-REPO_NAME_EE="liferay-portal-ee"
-
-REPO_PATH_DXP="${BASE_DIR}/${REPO_NAME_DXP}"
-REPO_PATH_EE="${BASE_DIR}/${REPO_NAME_EE}"
+REPO_PATH_DXP="${BASE_DIR}/liferay-dxp"
+REPO_PATH_EE="${BASE_DIR}/liferay-portal-ee"
 
 TAGS_FILE_DXP="/tmp/tags_file_dxp.txt"
 TAGS_FILE_EE="/tmp/tags_file_ee.txt"
@@ -30,12 +26,6 @@ function check_param {
 		echo "${2}"
 		exit 1
 	fi
-}
-
-function git_add {
-	echo -n ">>>> Running 'git add'..."
-	git add .
-	echo "done."
 }
 
 function git_checkout_branch {
@@ -58,62 +48,44 @@ function git_checkout_branch {
 	fi
 }
 
-function git_checkout_tag {
+function checkout_tag {
 	local tag_name="${1}"
 
-	check_param "${tag_name}" "Missing tag name"
-
-	echo -n ">>>> Checking out tag '${tag_name}'..."
-	git checkout -q "${tag_name}"
-	echo "done."
+	git checkout "${1}"
 }
 
-function git_commit {
-	local commit_msg="${1}"
+function commit_and_tag {
+	local tag_name="${1}"
 
-	check_param "${commit_msg}" "Missing commit message"
+	git add .
 
-	echo -n ">>>> Running 'git commit'..."
-	git commit -a -m "${commit_msg}" -q
-	echo "done."
+	git commit -a -m "${tag_name}" -q
+
+	git tag "${tag_name}"
 }
 
-function git_fetch_repo {
-	local repo_name="${1}"
-
-	check_param "${repo_name}" "Missing repo name"
-
-	lc_cd "${BASE_DIR}"
-
-	if [ -d "${repo_name}" ]
+function clone_repository {
+	if [ -d "${1}" ]
 	then
-		echo -n "Repository '${repo_name}' exists, refreshing..."
-		lc_cd "${repo_name}"
-		git fetch --all
-		echo "done."
-
-	else
-		echo -n "Repository '${repo_name}' does not exists, cloning..."
-		git clone "${GITHUB_ADDRESS}/${repo_name}"
-		echo "done."
+		return "${LIFERAY_COMMON_EXIT_CODE_SKIPPED}"
 	fi
+
+	git clone "${GITHUB_ADDRESS}/${1}"
+}
+
+function fetch_repository {
+	lc_cd "${BASE_DIR}/${1}"
+	
+	git fetch --all
 }
 
 function git_fsck {
-	echo -n ">>>> Running 'git fsck'..."
-
-	if (! git fsck --full >/dev/null 2>&1)
-	then
-		echo "Running of 'git fsck' has failed."
-		exit 1
-	fi
+	
 
 	echo "done."
 }
 
-function git_gc {
-	echo -n ">>>> Running 'git gc'..."
-
+function run_git_maintenance {
 	while (pgrep -f "git gc" >/dev/null)
 	do
 		sleep 1
@@ -122,7 +94,13 @@ function git_gc {
 	rm -f .git/gc.log
 
 	git gc --quiet
-	echo "done."
+
+	if (! git fsck --full >/dev/null 2>&1)
+	then
+		echo "Running of 'git fsck' has failed."
+
+		exit 1
+	fi
 }
 
 function git_get_all_tags {
@@ -154,14 +132,13 @@ function git_get_new_tags {
 	echo "done."
 }
 
-function git_init_repo {
+function init_repo {
 	if [ -d "${REPO_PATH_DXP}" ]
 	then
 		echo "DXP repo already exists: '${REPO_PATH_DXP}'"
-		exit 1
-	fi
 
-	echo -n "Initializing repo ..."
+		return "${LIFERAY_COMMON_EXIT_CODE_SKIPPED}"
+	fi
 
 	git init -q "${REPO_PATH_DXP}"
 
@@ -169,13 +146,11 @@ function git_init_repo {
 
 	touch README.md
 
-	git_add
+	git add .
 
-	git_commit "Initial commit"
+	git commit -m "Initial commit"
 
 	git remote add origin "${GITHUB_ADDRESS}/${REPO_NAME_DXP}"
-
-	echo "done."
 }
 
 function git_pull_and_push_all_tags {
@@ -205,31 +180,17 @@ function git_pull_and_push_all_tags {
 function git_pull_tag {
 	local tag_name="${1}"
 
-	check_param "${tag_name}" "Missing tag name"
-
-	echo
-
-	echo "Pulling tag: ${tag_name} ..."
-
 	lc_cd "${REPO_PATH_EE}"
 
-	git_checkout_tag "${tag_name}"
+	lc_time_run checkout_tag "${tag_name}"
 
 	lc_cd "${REPO_PATH_DXP}"
 
-	git_gc
+	lc_time_run run_git_maintenance
 
-	git_fsck
+	lc_time_run run_rsync ${tag_name}
 
-	run_rsync
-
-	git_add
-
-	git_commit "${tag_name}"
-
-	git_tag "${tag_name}"
-
-	echo "done."
+	lc_time_run commit_and_tag "${tag_name}"
 }
 
 function git_push_in_batches {
@@ -287,36 +248,24 @@ function git_push_repo {
 	echo "done."
 }
 
-function git_tag {
-	local tag_name="${1}"
-
-	check_param "${tag_name}" "Missing tag name"
-
-	local commit_hash
-	commit_hash=$(git rev-parse HEAD)
-
-	echo -n ">>>> Running 'git tag'..."
-	git tag "${tag_name}" "${commit_hash}"
-	echo "done."
-}
-
 function run_rsync {
-	echo -n ">>>> Running 'rsync'..."
 	rsync -ar --delete --exclude '.git' "${REPO_PATH_EE}/" "${REPO_PATH_DXP}/"
-	echo "done."
 }
 
-check_param "${VERSION}" "Missing version"
+function main {
+	LIFERAY_COMMON_LOG_DIR=logs
 
-if [ "${RUN_FROM_SCRATCH}" == "true" ]
-then
-	lc_time_run git_init_repo "${REPO_NAME_DXP}"
-else
-	lc_time_run git_fetch_repo "${REPO_NAME_DXP}"
-fi
+	check_param "${VERSION}" "Missing version"
 
-lc_time_run git_fetch_repo "${REPO_NAME_EE}"
+	lc_time_run init_repo liferay-dxp
+	
+	lc_time_run clone_repository liferay-portal-ee
 
-lc_time_run git_pull_and_push_all_tags
+	lc_time_run fetch_repository liferay-portal-ee
 
-lc_time_run git_push_repo
+	git_pull_and_push_all_tags
+
+	lc_time_run git_push_repo
+}
+
+main "${@}"
